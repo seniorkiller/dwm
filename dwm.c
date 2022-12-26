@@ -57,12 +57,31 @@
 #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
 #define TEXTW(X)                (drw_fontset_getwidth(drw, (X)) + lrpad)
 
+#define GAP_TOGGLE 100
+#define GAP_RESET  0
+
+#define SYSTEM_TRAY_REQUEST_DOCK    0
+/* XEMBED messages */
+#define XEMBED_EMBEDDED_NOTIFY      0
+#define XEMBED_WINDOW_ACTIVATE      1
+#define XEMBED_FOCUS_IN             4
+#define XEMBED_MODALITY_ON         10
+#define XEMBED_MAPPED              (1 << 0)
+#define XEMBED_WINDOW_ACTIVATE      1
+#define XEMBED_WINDOW_DEACTIVATE    2
+#define VERSION_MAJOR               0
+#define VERSION_MINOR               0
+#define XEMBED_EMBEDDED_VERSION (VERSION_MAJOR << 16) | VERSION_MINOR
+
+
 /* enums */
 enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
 enum { SchemeNorm, SchemeSel }; /* color schemes */
 enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
+       NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayOrientationHorz,
        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
        NetWMWindowTypeDialog, NetClientList, NetLast }; /* EWMH atoms */
+enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus, WMLast }; /* default atoms */
 enum { ClkTagBar, ClkLtSymbol, ClkStatusText, ClkWinTitle,
        ClkClientWin, ClkRootWin, ClkLast }; /* clicks */
@@ -111,6 +130,12 @@ typedef struct {
 	void (*arrange)(Monitor *);
 } Layout;
 
+typedef struct {
+	int isgap;
+	int realgap;
+	int gappx;
+} Gap;
+
 struct Monitor {
 	char ltsymbol[16];
 	float mfact;
@@ -119,6 +144,7 @@ struct Monitor {
 	int by;               /* bar geometry */
 	int mx, my, mw, mh;   /* screen size */
 	int wx, wy, ww, wh;   /* window area  */
+	Gap *gap;
 	unsigned int seltags;
 	unsigned int sellt;
 	unsigned int tagset[2];
@@ -140,6 +166,13 @@ typedef struct {
 	int isfloating;
 	int monitor;
 } Rule;
+
+typedef struct Systray   Systray;
+struct Systray {
+	Window win;
+	Client *icons;
+};
+
 
 /* function declarations */
 static void applyrules(Client *c);
@@ -169,6 +202,7 @@ static void focus(Client *c);
 static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
 static void focusstack(const Arg *arg);
+static void gap_copy(Gap *to, const Gap *from);
 static Atom getatomprop(Client *c, Atom prop);
 static int getrootptr(int *x, int *y);
 static long getstate(Window w);
@@ -200,6 +234,7 @@ static void sendmon(Client *c, Monitor *m);
 static void setclientstate(Client *c, long state);
 static void setfocus(Client *c);
 static void setfullscreen(Client *c, int fullscreen);
+static void setgaps(const Arg *arg);
 static void setlayout(const Arg *arg);
 static void setmfact(const Arg *arg);
 static void setup(void);
@@ -234,6 +269,8 @@ static int xerror(Display *dpy, XErrorEvent *ee);
 static int xerrordummy(Display *dpy, XErrorEvent *ee);
 static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
+static void centeredmaster(Monitor *m);
+static void centeredfloatingmaster(Monitor *m);
 
 /* variables */
 static const char broken[] = "broken";
@@ -642,6 +679,8 @@ createmon(void)
 	m->nmaster = nmaster;
 	m->showbar = showbar;
 	m->topbar = topbar;
+	m->gap = malloc(sizeof(Gap));
+	gap_copy(m->gap, &default_gap);
 	m->lt[0] = &layouts[0];
 	m->lt[1] = &layouts[1 % LENGTH(layouts)];
 	strncpy(m->ltsymbol, layouts[0].symbol, sizeof m->ltsymbol);
@@ -1509,6 +1548,35 @@ setfullscreen(Client *c, int fullscreen)
 }
 
 void
+gap_copy(Gap *to, const Gap *from)
+{
+	to->isgap   = from->isgap;
+	to->realgap = from->realgap;
+	to->gappx   = from->gappx;
+}
+
+void
+setgaps(const Arg *arg)
+{
+	Gap *p = selmon->gap;
+	switch(arg->i)
+	{
+		case GAP_TOGGLE:
+			p->isgap = 1 - p->isgap;
+			break;
+		case GAP_RESET:
+			gap_copy(p, &default_gap);
+			break;
+		default:
+			p->realgap += arg->i;
+			p->isgap = 1;
+	}
+	p->realgap = MAX(p->realgap, 0);
+	p->gappx = p->realgap * p->isgap;
+	arrange(selmon);
+}
+
+void
 setlayout(const Arg *arg)
 {
 	if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
@@ -1691,18 +1759,18 @@ tile(Monitor *m)
 	if (n > m->nmaster)
 		mw = m->nmaster ? m->ww * m->mfact : 0;
 	else
-		mw = m->ww;
-	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
+		mw = m->ww - m->gap->gappx;
+	for (i = 0, my = ty = m->gap->gappx, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
 		if (i < m->nmaster) {
-			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
-			resize(c, m->wx, m->wy + my, mw - (2*c->bw), h - (2*c->bw), 0);
-			if (my + HEIGHT(c) < m->wh)
-				my += HEIGHT(c);
+			h = (m->wh - my) / (MIN(n, m->nmaster) - i) - m->gap->gappx;
+			resize(c, m->wx + m->gap->gappx, m->wy + my, mw - (2*c->bw) - m->gap->gappx, h - (2*c->bw), 0);
+			if (my + HEIGHT(c) + m->gap->gappx < m->wh)
+				my += HEIGHT(c) + m->gap->gappx;
 		} else {
-			h = (m->wh - ty) / (n - i);
-			resize(c, m->wx + mw, m->wy + ty, m->ww - mw - (2*c->bw), h - (2*c->bw), 0);
-			if (ty + HEIGHT(c) < m->wh)
-				ty += HEIGHT(c);
+			h = (m->wh - ty) / (n - i) - m->gap->gappx;
+			resize(c, m->wx + mw + m->gap->gappx, m->wy + ty, m->ww - mw - (2*c->bw) - 2*m->gap->gappx, h - (2*c->bw), 0);
+			if (ty + HEIGHT(c) + m->gap->gappx < m->wh)
+				ty += HEIGHT(c) + m->gap->gappx;
 		}
 }
 
@@ -2157,3 +2225,112 @@ main(int argc, char *argv[])
 	XCloseDisplay(dpy);
 	return EXIT_SUCCESS;
 }
+
+void
+centeredmaster(Monitor *m)
+{
+	unsigned int i, n, h, mw, mx, my, oty, ety, tw;
+	Client *c;
+
+	/*  count number of clients in the selected monitor */
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+	if (n == 0)
+		return;
+
+	/*  initialize areas */
+	mw = m->ww;
+	mx = 0;
+	my = 0;
+	tw = mw;
+
+	if (n > m->nmaster) {
+		/*  go mfact box in the center if more than nmaster clients */
+		mw = m->nmaster ? m->ww * m->mfact : 0;
+		tw = m->ww - mw;
+
+		if (n - m->nmaster > 1) {
+			/*  only one client */
+			mx = (m->ww - mw) / 2;
+			tw = (m->ww - mw) / 2;
+		}
+	}
+
+	oty = 0;
+	ety = 0;
+	for (i = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
+	if (i < m->nmaster) {
+		/*  nmaster clients are stacked vertically, in the center
+		 * of the screen */
+		h = (m->wh - my) / (MIN(n, m->nmaster) - i);
+		resize(c, m->wx + mx, m->wy + my, mw - (2*c->bw),
+		       h - (2*c->bw), 0);
+		my += HEIGHT(c);
+	} else {
+		/*  stack clients are stacked vertically */
+		if ((i - m->nmaster) % 2 ) {
+			h = (m->wh - ety) / ( (1 + n - i) / 2);
+			resize(c, m->wx, m->wy + ety, tw - (2*c->bw),
+			       h - (2*c->bw), 0);
+			ety += HEIGHT(c);
+		} else {
+			h = (m->wh - oty) / ((1 + n - i) / 2);
+			resize(c, m->wx + mx + mw, m->wy + oty,
+			       tw - (2*c->bw), h - (2*c->bw), 0);
+			oty += HEIGHT(c);
+		}
+	}
+}
+
+void
+centeredfloatingmaster(Monitor *m)
+{
+	unsigned int i, n, w, mh, mw, mx, mxo, my, myo, tx;
+	Client *c;
+
+	/*  count number of clients in the selected monitor */
+	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+	if (n == 0)
+		return;
+
+	/*  initialize nmaster area */
+	if (n > m->nmaster) {
+		/*  go mfact box in the center if more than nmaster clients */
+		if (m->ww > m->wh) {
+			mw = m->nmaster ? m->ww * m->mfact : 0;
+			mh = m->nmaster ? m->wh * 0.9 : 0;
+		} else {
+			mh = m->nmaster ? m->wh * m->mfact : 0;
+			mw = m->nmaster ? m->ww * 0.9 : 0;
+		}
+		mx = mxo = (m->ww - mw) / 2;
+		my = myo = (m->wh - mh) / 2;
+	} else {
+		/*  go fullscreen if all clients are in the master area */
+		mh = m->wh;
+		mw = m->ww;
+		mx = mxo = 0;
+		my = myo = 0;
+	}
+
+		for(i = tx = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
+	if (i < m->nmaster) {
+		/*  nmaster clients are stacked horizontally, in the center
+		 * of the screen */
+		w = (mw + mxo - mx) / (MIN(n, m->nmaster) - i);
+		resize(c, m->wx + mx, m->wy + my, w - (2*c->bw),
+		       mh - (2*c->bw), 0);
+		mx += WIDTH(c);
+	} else {
+		/*  stack clients are stacked horizontally */
+		w = (m->ww - tx) / (n - i);
+		resize(c, m->wx + tx, m->wy, w - (2*c->bw),
+		       m->wh - (2*c->bw), 0);
+		tx += WIDTH(c);
+	}
+}
+
+
+
+
+
+
