@@ -1,3 +1,4 @@
+///sudo make clean install
 /* See LICENSE file for copyright and license details. */
 
 /* appearance */
@@ -21,7 +22,7 @@ static const char *colors[][3]      = {
 };
 
 /* tagging */
-static const char *tags[] = { "", "", "", "", "", "", "", "", "" };
+static const char *tags[] = { "", "󰈹", "", "", "", "", "󰵅", "", "" };
 
 static const Rule rules[] = {
 	/* xprop(1):
@@ -29,12 +30,15 @@ static const Rule rules[] = {
 	 *	WM_NAME(STRING) = title
 	 */
 	/* class      instance    title       tags mask     isfloating   monitor */
-	{ "firefox",  NULL,       NULL,       2 << 0,       0,           -1 },
-	{ "obsidian", NULL,       NULL,       8 << 0,       0,           -1 },
-	{ "spotify",  NULL,       NULL,       9 << 0,       0,           -1 },
-	{ "discord",  NULL,       NULL,       7 << 0,       0,           -1 },
-///	{ "Firefox",  NULL,       NULL,       2 << 0,       0,           -1 },
-///	{ "Firefox",  NULL,       NULL,       2 << 0,       0,           -1 },
+	{ "firefox",       NULL,       NULL,       2,            0,           -1 },
+	{ "discord",       NULL,       NULL,       7,            0,           -1 },
+	{ "obsidian",      NULL,       NULL,       8,            0,           -1 },
+	{ "Spotify",       NULL,       NULL,       9,            0,           -1 },
+	{ "fzfmenu",       NULL,       NULL,       0,            1,           -1 },
+	{ "mate-calc",     NULL,       NULL,       0,            1,           -1 },
+	{ "pavucontrol",   NULL,       NULL,       0,            1,           -1 },
+	{ "ncmpcpp",       NULL,       NULL,       0,            1,           -1 }
+///	{ "Firefox",       NULL,       NULL,       2 << 0,       0,           -1 },
 };
 
 /* layout(s) */
@@ -77,7 +81,7 @@ static const Key keys[] = {
 	{ ALTKEY,                       XK_j,      focusstack,     {.i = -1 } },
 	{ ALTKEY,                       XK_k,      focusstack,     {.i = +1 } },
 	{ MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
-	{ MODKEY|ShiftMask,             XK_d,      incnmaster,     {.i = -1 } },
+	{ MODKEY|ShiftMask,             XK_i,      incnmaster,     {.i = -1 } },
 	{ ALTKEY,                       XK_h,      setmfact,       {.f = -0.05} },
 	{ ALTKEY,                       XK_l,      setmfact,       {.f = +0.05} },
 	{ MODKEY,                       XK_p,      zoom,           {0} },
